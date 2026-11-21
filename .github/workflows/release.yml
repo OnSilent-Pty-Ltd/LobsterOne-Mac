@@ -1,0 +1,318 @@
+name: Release
+
+# Ship only what passed Build & Test: run once that workflow finishes on a
+# push to main, and build the exact commit it tested. Branch protection isn't
+# available on this plan, so this is the gate that keeps broken builds from users.
+on:
+  workflow_run:
+    workflows: ["Build & Test"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  PROJECT: LobsterOne/LobsterOne.xcodeproj
+  SCHEME: LobsterOne
+  TEAM_ID: 7W5LRA7TSX
+
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: macos-15
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Select Xcode 26
+        # Dictation uses SpeechAnalyzer, which is only in the macOS 26 SDK; the runner's
+        # default Xcode is 16.4.
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Compute version
+        id: version
+        run: |
+          # Keep the short version standards-compliant and use the build number
+          # separately for ordering and unique artifact names.
+          DATE_PART="$(date -u '+%Y.%-m.%-d')"
+          BUILD="${{ github.run_number }}"
+          MARKETING="${DATE_PART}"
+          FULL="${DATE_PART}.${BUILD}"
+          echo "marketing=${MARKETING}" >> "$GITHUB_OUTPUT"
+          echo "build=${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "full=${FULL}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${MARKETING} (${BUILD})"
+
+      - name: Install Apple certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          echo -n "$P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A \
+            -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Set up App Store Connect API key
+        env:
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$API_KEY_P8" > ~/private_keys/AuthKey_${API_KEY_ID}.p8
+
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/LobsterOne.xcarchive" \
+            MARKETING_VERSION="${{ steps.version.outputs.marketing }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp"
+
+      - name: Export
+        run: |
+          cat > "$RUNNER_TEMP/export-options.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>teamID</key>
+            <string>7W5LRA7TSX</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/LobsterOne.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/export-options.plist"
+
+      - name: Bundle screensaver
+        env:
+          SAVER_VERSION: ${{ steps.version.outputs.marketing }}
+          SAVER_BUILD: ${{ steps.version.outputs.build }}
+          PUSH_PROFILE_BASE64: ${{ secrets.APPLE_PUSH_PROFILE_BASE64 }}
+        run: |
+          # Built here rather than by the Xcode project: it is a loadable bundle compiled
+          # with swiftc (ScreenSaver/build.sh). Signed on its own, then the app is
+          # re-sealed around it, so notarization below covers both.
+          IDENTITY="Developer ID Application: OnSilent Pty Ltd ($TEAM_ID)"
+          APP_PATH="$RUNNER_TEMP/export/LobsterOne.app"
+
+          SIGN_IDENTITY="$IDENTITY" ScreenSaver/build.sh
+
+          DEST="$APP_PATH/Contents/Library/Screen Savers"
+          mkdir -p "$DEST"
+          ditto ScreenSaver/build/LobsterOne.saver "$DEST/LobsterOne.saver"
+
+          # Re-sign the app with the entitlements it was exported with.
+          codesign -d --entitlements - --xml "$APP_PATH" > "$RUNNER_TEMP/app.entitlements"
+
+          # Apple push for town invites, only once the owner has stored the Developer ID
+          # provisioning profile as a secret. Without it this block does nothing and the
+          # app ships exactly as before (push stays off, invites arrive by poll).
+          if [ -n "$PUSH_PROFILE_BASE64" ]; then
+            PROFILE="$RUNNER_TEMP/push.provisionprofile"
+            echo -n "$PUSH_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+            security cms -D -i "$PROFILE" > "$RUNNER_TEMP/push-profile.plist"
+            APS=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.aps-environment" "$RUNNER_TEMP/push-profile.plist")
+            APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$RUNNER_TEMP/push-profile.plist")
+            if [ "$APS" != "production" ] || [ "$APP_ID" != "$TEAM_ID.com.lobsterone.mac" ]; then
+              echo "ERROR: push profile is not a Developer ID profile for com.lobsterone.mac with push (aps=$APS app=$APP_ID)"
+              exit 1
+            fi
+            cp "$PROFILE" "$APP_PATH/Contents/embedded.provisionprofile"
+            # An app exported with no entitlements prints nothing; start from an empty dict.
+            plutil -lint "$RUNNER_TEMP/app.entitlements" >/dev/null 2>&1 \
+              || plutil -create xml1 "$RUNNER_TEMP/app.entitlements"
+            /usr/libexec/PlistBuddy -c "Merge LobsterOne/LobsterOne-Push.entitlements" "$RUNNER_TEMP/app.entitlements"
+            echo "Push enabled: embedded profile and merged push entitlements"
+          fi
+
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+            --entitlements "$RUNNER_TEMP/app.entitlements" "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          if [ -n "$PUSH_PROFILE_BASE64" ]; then
+            # macOS kills an app at launch when its entitlements and profile disagree, and
+            # every user auto-updates. Launch it once here and refuse to ship if it dies.
+            "$APP_PATH/Contents/MacOS/LobsterOne" > "$RUNNER_TEMP/launch.log" 2>&1 &
+            PID=$!
+            sleep 8
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "ERROR: signed app with push did not stay running"
+              cat "$RUNNER_TEMP/launch.log"
+              exit 1
+            fi
+            kill "$PID" || true
+            echo "Launch check passed"
+          fi
+
+      - name: Notarize app
+        env:
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          ditto -c -k --keepParent \
+            "$RUNNER_TEMP/export/LobsterOne.app" \
+            "$RUNNER_TEMP/LobsterOne-notarize.zip"
+
+          xcrun notarytool submit \
+            "$RUNNER_TEMP/LobsterOne-notarize.zip" \
+            --key ~/private_keys/AuthKey_${API_KEY_ID}.p8 \
+            --key-id "$API_KEY_ID" \
+            --issuer "$API_ISSUER_ID" \
+            --wait --timeout 15m
+
+          xcrun stapler staple "$RUNNER_TEMP/export/LobsterOne.app"
+
+      - name: Create DMG
+        run: |
+          scripts/create-dmg.sh \
+            "$RUNNER_TEMP/export/LobsterOne.app" \
+            "${{ steps.version.outputs.full }}" \
+            "$RUNNER_TEMP"
+
+      - name: Sign and notarize DMG
+        env:
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          DMG_PATH="$RUNNER_TEMP/LobsterOne-${{ steps.version.outputs.full }}.dmg"
+
+          codesign --force --sign "Developer ID Application: OnSilent Pty Ltd ($TEAM_ID)" \
+            --timestamp "$DMG_PATH"
+
+          xcrun notarytool submit "$DMG_PATH" \
+            --key ~/private_keys/AuthKey_${API_KEY_ID}.p8 \
+            --key-id "$API_KEY_ID" \
+            --issuer "$API_ISSUER_ID" \
+            --wait --timeout 15m
+
+          xcrun stapler staple "$DMG_PATH"
+
+      - name: Verify packaged app in DMG
+        run: |
+          DMG_PATH="$RUNNER_TEMP/LobsterOne-${{ steps.version.outputs.full }}.dmg"
+          MOUNT_OUTPUT=$(hdiutil attach -readonly -nobrowse "$DMG_PATH")
+          MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | awk '/\/Volumes\// { sub(/^.*\/Volumes/, "/Volumes"); print; exit }')
+
+          if [ -z "$MOUNT_POINT" ]; then
+            echo "ERROR: Failed to determine mounted volume path"
+            echo "$MOUNT_OUTPUT"
+            exit 1
+          fi
+
+          APP_PATH="$MOUNT_POINT/LobsterOne.app"
+
+          cleanup() {
+            if [ -n "${MOUNT_POINT:-}" ] && [ -d "$MOUNT_POINT" ]; then
+              hdiutil detach "$MOUNT_POINT" -quiet || true
+            fi
+          }
+          trap cleanup EXIT
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
+
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          VERSION="${{ steps.version.outputs.full }}"
+          DMG_PATH="$RUNNER_TEMP/LobsterOne-${VERSION}.dmg"
+          DMG_SIZE=$(stat -f%z "$DMG_PATH")
+
+          # Download Sparkle sign_update tool
+          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz" | \
+            tar -xJ -C "$RUNNER_TEMP" bin/sign_update
+          SIGN_UPDATE="$RUNNER_TEMP/bin/sign_update"
+
+          # Generate EdDSA signature
+          echo "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle_key"
+          SIGN_OUTPUT=$("$SIGN_UPDATE" "$DMG_PATH" --ed-key-file "$RUNNER_TEMP/sparkle_key" 2>&1)
+          rm -f "$RUNNER_TEMP/sparkle_key"
+          echo "sign_update output: $SIGN_OUTPUT"
+
+          # Extract signature — handle both output formats
+          SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -oE 'sparkle:edSignature="[^"]+"' | sed 's/sparkle:edSignature="//' | sed 's/"$//' || true)
+          if [ -z "$SIGNATURE" ]; then
+            # Fallback: sign_update may just output the raw signature
+            SIGNATURE=$(echo "$SIGN_OUTPUT" | tail -1)
+          fi
+
+          if [ -z "$SIGNATURE" ]; then
+            echo "ERROR: Failed to generate Sparkle signature"
+            exit 1
+          fi
+
+          echo "Signature: $SIGNATURE"
+          # MIN_AUTOUPDATE_BUILD is the lowest build number that may use
+          # Sparkle's auto-installer. Older builds are routed to a manual
+          # download dialog instead — this is the rescue path for the
+          # build-101 cohort whose silent-install code is broken in the field.
+          MIN_AUTOUPDATE_BUILD=102
+
+          scripts/generate-appcast.sh \
+            "${{ steps.version.outputs.marketing }}" \
+            "${{ steps.version.outputs.build }}" \
+            "$VERSION" \
+            "$DMG_SIZE" \
+            "$SIGNATURE" \
+            "$MIN_AUTOUPDATE_BUILD" \
+            > "$RUNNER_TEMP/appcast.xml"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Upload to S3
+        env:
+          BUCKET: ${{ secrets.RELEASES_BUCKET_NAME }}
+          VERSION: ${{ steps.version.outputs.full }}
+        run: |
+          DMG_FILE="LobsterOne-${VERSION}.dmg"
+          aws s3 cp "$RUNNER_TEMP/$DMG_FILE" "s3://${BUCKET}/mac/${DMG_FILE}"
+          aws s3 cp "$RUNNER_TEMP/$DMG_FILE" "s3://${BUCKET}/mac/LobsterOne-latest.dmg"
+          aws s3 cp "$RUNNER_TEMP/appcast.xml" "s3://${BUCKET}/mac/appcast.xml" \
+            --content-type "application/xml"
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.RELEASES_CLOUDFRONT_DIST_ID }}" \
+            --paths "/mac/*"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f ~/private_keys/AuthKey_*.p8 2>/dev/null || true

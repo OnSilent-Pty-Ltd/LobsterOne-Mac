@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>LSUIElement</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>lobsterone</string>
+            </array>
+            <key>CFBundleURLName</key>
+            <string>com.lobsterone.mac</string>
+        </dict>
+    </array>
+    <key>SUScheduledCheckInterval</key>
+    <integer>3600</integer>
+    <key>SUFeedURL</key>
+    <string>https://releases.lobsterone.ai/mac/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>PzXGOHpFpNFdw/b+/6Qco/hKMx7JTD8TMrDRSa0GJo8=</string>
+</dict>
+</plist>
