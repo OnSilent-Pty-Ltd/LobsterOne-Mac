@@ -398,7 +398,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.0;
+				minimumVersion = 2.10.1;
 			};
 		};
 		10B2F95E2F6E800000829FFA /* XCRemoteSwiftPackageReference "TOMLKit" */ = {

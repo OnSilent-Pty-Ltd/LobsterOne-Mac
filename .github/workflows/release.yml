@@ -255,9 +255,14 @@ jobs:
           DMG_PATH="$RUNNER_TEMP/LobsterOne-${VERSION}.dmg"
           DMG_SIZE=$(stat -f%z "$DMG_PATH")
 
-          # Download Sparkle sign_update tool
-          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz" | \
-            tar -xJ -C "$RUNNER_TEMP" bin/sign_update
+          # Download Sparkle's sign_update, the same version the app links, and check it
+          # against the SHA-256 GitHub publishes for the release asset before it runs
+          # anywhere near the signing key.
+          SPARKLE_TOOLS="$RUNNER_TEMP/Sparkle-2.10.1.tar.xz"
+          curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/2.10.1/Sparkle-2.10.1.tar.xz" \
+            -o "$SPARKLE_TOOLS"
+          echo "1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27  $SPARKLE_TOOLS" | shasum -a 256 -c -
+          tar -xJf "$SPARKLE_TOOLS" -C "$RUNNER_TEMP" bin/sign_update
           SIGN_UPDATE="$RUNNER_TEMP/bin/sign_update"
 
           # Generate EdDSA signature
