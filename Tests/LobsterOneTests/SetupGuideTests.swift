@@ -19,6 +19,8 @@ private final class FakeMac {
     var permission: PaceNotifier.Permission = .notAsked
     var screensaverInstalled = false
     var style = ScreensaverStyle.standard
+    var band: ClaudeCodeMod.State = .notInstalled
+    var bandError: Error?
     var calls: [String] = []
 
     init() {
@@ -51,7 +53,13 @@ private final class FakeMac {
             screensaverStyle: { self.style },
             setScreensaverStyle: { self.style = $0; self.calls.append("style \($0.rawValue)") },
             installScreensaver: { self.screensaverInstalled = true; self.calls.append("install") },
-            awsConnected: { false })
+            awsConnected: { false },
+            claudeCodeMod: { self.band },
+            addClaudeCodeMod: {
+                self.calls.append("add band")
+                if let error = self.bandError { throw error }
+                self.band = .installed(version: "0.8.0")
+            })
     }
 
     /// A guide already past sign-in, on the given step, with the tools found.
@@ -79,7 +87,7 @@ private final class FakeMac {
     guide.tracked = [.codex]
     await guide.confirm()
     #expect(mac.calls == ["disconnect claude-code", "connect codex"])
-    #expect(guide.step == .sounds)
+    #expect(guide.step == .claudeCode)
     #expect(guide.outcomes[.tools] == .on("Codex"))
 
     // Back and confirm again: already as chosen, so nothing more happens.
@@ -220,4 +228,51 @@ private final class FakeMac {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("SetupGuideTests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude"), withIntermediateDirectories: true)
     #expect(ConfigService(homeDirectory: home).isClaudeCodeInstalled())
+}
+
+@MainActor @Test func setupGuideAddsTheClaudeCodeBandOnConfirm() async {
+    let mac = FakeMac()
+    let guide = await mac.guide(at: .claudeCode)
+    await guide.refreshClaudeCodeMod()
+    #expect(guide.claudeCodeMod == .notInstalled)
+
+    await guide.confirm()
+
+    #expect(mac.calls == ["add band"])
+    #expect(guide.outcomes[.claudeCode] == .on("Band added"))
+    #expect(guide.step == .sounds)
+}
+
+@MainActor @Test func setupGuideKeepsTheClaudeCodeStepWhenClaudeCodeRefuses() async {
+    let mac = FakeMac()
+    mac.bandError = ClaudeCodeMod.Failure.claudeSaid("Plugins are disabled by your organization's policy")
+    let guide = await mac.guide(at: .claudeCode)
+
+    await guide.confirm()
+
+    #expect(guide.step == .claudeCode)
+    #expect(guide.problem == "Claude Code said: Plugins are disabled by your organization's policy")
+    #expect(guide.outcomes[.claudeCode] == nil)
+}
+
+@MainActor @Test func setupGuideMovesOnWithoutClaudeCode() async {
+    let mac = FakeMac()
+    mac.band = .claudeMissing
+    let guide = await mac.guide(at: .claudeCode)
+
+    await guide.confirm()
+
+    #expect(mac.calls.isEmpty)
+    #expect(guide.outcomes[.claudeCode] == .off("Claude Code not found"))
+    #expect(guide.step == .sounds)
+}
+
+@MainActor @Test func setupGuideNotNowLeavesClaudeCodeAlone() async {
+    let mac = FakeMac()
+    let guide = await mac.guide(at: .claudeCode)
+
+    guide.skip()
+
+    #expect(mac.calls.isEmpty)
+    #expect(guide.outcomes[.claudeCode] == .skipped)
 }

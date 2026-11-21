@@ -253,6 +253,7 @@ final class StatusBarController: NSObject, ObservableObject, NSPopoverDelegate {
     var onRefreshNow: (() -> Void)?
     var onShowDiagnostics: (() -> Void)?
     var onShowAWSSettings: (() -> Void)?
+    var onAddClaudeCodeBand: (() -> Void)?
     var onNotificationsViewed: (() -> Void)?
     /// Join from a town invite row: AppDelegate opens the town in the browser.
     var onJoinTown: ((String) -> Void)?
@@ -279,6 +280,8 @@ final class StatusBarController: NSObject, ObservableObject, NSPopoverDelegate {
         /// Opens the crew's calendar.
         case crewCalendar
         case awsSettings
+        /// The Team page's nudge: adds the band to Claude Code, then shows Settings, Tools.
+        case addClaudeCodeBand
         case openURL(URL)
     }
 
@@ -322,6 +325,7 @@ final class StatusBarController: NSObject, ObservableObject, NSPopoverDelegate {
             }
             Task { await teamMonitor.refresh() }
         case .awsSettings: onShowAWSSettings?()
+        case .addClaudeCodeBand: onAddClaudeCodeBand?()
         case .openURL(let url): NSWorkspace.shared.open(url)
         case .banner:
             if clientPolicy.level == .soft, let url = clientPolicy.downloadUrl {

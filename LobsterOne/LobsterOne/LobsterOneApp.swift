@@ -151,6 +151,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // An installed screensaver from an older app build is brought up to date.
         ScreensaverInstaller.updateIfOutdated()
+        // An added Claude Code band gets this build's files; one never added is left alone.
+        do {
+            if try ClaudeCodeMod.filesOnly().refreshFiles() { DebugLog.shared.log("Claude Code band updated to this build") }
+        } catch {
+            DebugLog.shared.log("Claude Code band update failed: \(error.localizedDescription)")
+        }
         screensaverSnapshot.style = ScreensaverInstaller.chosenStyle
 
         // Migrate credentials and config from old Robocog locations
@@ -165,6 +171,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.onRefreshNow = { [weak self] in self?.pollingService.refreshNow() }
         statusBar.onShowDiagnostics = { [weak self] in self?.showSettings(tab: .diagnostics) }
         statusBar.onShowAWSSettings = { [weak self] in self?.showSettings(tab: .aws) }
+        statusBar.onAddClaudeCodeBand = { [weak self] in
+            // Settings, Tools asks Claude Code again when it appears, so it shows how this went.
+            Task { @MainActor in
+                do {
+                    try await ClaudeCodeMod.live().install()
+                } catch {
+                    DebugLog.shared.log("Claude Code band from the Team page: \(error.localizedDescription)")
+                }
+                self?.showSettings(tab: .tools)
+            }
+        }
         statusBar.onNotificationsViewed = { [weak self] in
             self?.pollingService.markAllNotificationsRead()
         }
@@ -508,7 +525,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.liveActivity.start()
                 if ScreensaverSystemState.read().choice != .lobsterOne { ScreensaverInstaller.openScreenSaverSettings() }
             },
-            awsConnected: { [weak self] in self?.awsCosts.isConnected ?? false }
+            awsConnected: { [weak self] in self?.awsCosts.isConnected ?? false },
+            claudeCodeMod: { await ClaudeCodeMod.live().state() },
+            addClaudeCodeMod: {
+                let mod = ClaudeCodeMod.live()
+                if case .switchedOff = await mod.state() { try await mod.turnOn() } else { try await mod.install() }
+            }
         )
     }
 

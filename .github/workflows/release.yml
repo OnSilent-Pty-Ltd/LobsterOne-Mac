@@ -137,6 +137,13 @@ jobs:
           mkdir -p "$DEST"
           ditto ScreenSaver/build/LobsterOne.saver "$DEST/LobsterOne.saver"
 
+          # The Claude Code mod: plain files the app copies out when the person adds it
+          # (ClaudeCodeMod.swift). Kept out of the Xcode sources, which would flatten its folders.
+          MOD="$APP_PATH/Contents/Library/ClaudeCode/lobsterone"
+          mkdir -p "$MOD"
+          ditto ClaudeCodeMod "$MOD"
+          rm -rf "$MOD/tests" "$MOD/tsconfig.json" "$MOD/.claude-plugin/types"
+
           # Re-sign the app with the entitlements it was exported with.
           codesign -d --entitlements - --xml "$APP_PATH" > "$RUNNER_TEMP/app.entitlements"
 

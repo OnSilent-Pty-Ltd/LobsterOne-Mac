@@ -1,0 +1,7 @@
+{
+  "name": "lobsterone",
+  "version": "0.8.0",
+  "description": "A band above Claude Code's prompt: your project's name and logo, a live activity trace and a health dot, your LobsterOne crew at work, and the session themed in your project's colours. Added and kept up to date by the LobsterOne app.",
+  "author": { "name": "LobsterOne" },
+  "types": "./types/index.d.ts"
+}

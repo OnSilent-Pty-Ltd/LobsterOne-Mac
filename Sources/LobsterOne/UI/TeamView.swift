@@ -13,6 +13,8 @@ struct TeamView: View {
     let perform: (StatusBarController.PopoverAction) -> Void
     @State private var expandedID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The × on the Claude Code nudge hides it for good; Settings, Tools still offers the band.
+    @AppStorage("claudeCodeBandNudgeDismissed") private var bandNudgeDismissed = false
 
     private let hPad: CGFloat = 16
     private static let aureliaID = CrewDigestWriter.agentName
@@ -39,12 +41,54 @@ struct TeamView: View {
                         ComingUpCard(calendar: calendar, members: snapshot.members) { perform(.crewCalendar) }
                             .padding(.horizontal, hPad)
                     }
+                    if offersBand(snapshot) {
+                        bandNudge.padding(.horizontal, hPad)
+                    }
                 }
             } else {
                 TeamLoadingCard(fraction: monitor.progress ?? 0)
                     .padding(.horizontal, hPad)
             }
         }
+    }
+
+    // MARK: - Claude Code nudge
+
+    /// Someone the app hired, a band this build carries, and none added yet. Whether it was
+    /// added is read from its folder, so opening the popover runs nothing.
+    private func offersBand(_ snapshot: TeamSnapshot) -> Bool {
+        !bandNudgeDismissed
+            && snapshot.members.contains { $0.persona != nil }
+            && ClaudeCodeMod.bundledURL != nil
+            && !FileManager.default.fileExists(atPath: ClaudeCodeMod.installedURL.path)
+    }
+
+    private var bandNudge: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("See your crew at work in Claude Code")
+                        .font(BrandFonts.sans(13.5, weight: .semibold))
+                    Text("Their faces and what they're doing, in a band above Claude Code's prompt.")
+                        .font(BrandFonts.sans(12.5))
+                        .foregroundStyle(PopoverPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { bandNudgeDismissed = true } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(PopoverPalette.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Don't show this again")
+            }
+            SettingsPill(title: "Add to Claude Code", prominent: true) { perform(.addClaudeCodeBand) }
+        }
+        .padding(12)
+        .background(PopoverPalette.blush, in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Header
