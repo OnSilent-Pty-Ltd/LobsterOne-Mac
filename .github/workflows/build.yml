@@ -8,6 +8,8 @@ on:
     paths-ignore: ['**.md']
   pull_request:
     branches: [main]
+  # "Run workflow" in the Actions tab. Run on main, a pass also starts a release.
+  workflow_dispatch:
 
 # Builds and tests only; nothing here writes to the repository.
 permissions:

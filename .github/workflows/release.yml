@@ -1,8 +1,9 @@
 name: Release
 
 # Ship only what passed Build & Test: run once that workflow finishes on a
-# push to main, and build the exact commit it tested. Branch protection isn't
-# available on this plan, so this is the gate that keeps broken builds from users.
+# push to main (or a manual run on main, from the Actions tab), and build the
+# exact commit it tested. Together with branch protection on main, this keeps
+# broken builds from users.
 on:
   workflow_run:
     workflows: ["Build & Test"]
@@ -20,7 +21,9 @@ env:
 
 jobs:
   release:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: macos-15
     permissions:
       id-token: write
