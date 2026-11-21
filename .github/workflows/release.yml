@@ -44,7 +44,10 @@ jobs:
           # Keep the short version standards-compliant and use the build number
           # separately for ordering and unique artifact names.
           DATE_PART="$(date -u '+%Y.%-m.%-d')"
-          BUILD="${{ github.run_number }}"
+          # Sparkle orders updates by this number, so it must keep rising. Releases came
+          # from the old private repo up to build 172; this repo's run numbers restarted
+          # at 1, so they are offset to carry on above that. Never lower the offset.
+          BUILD="$(( ${{ github.run_number }} + 200 ))"
           MARKETING="${DATE_PART}"
           FULL="${DATE_PART}.${BUILD}"
           echo "marketing=${MARKETING}" >> "$GITHUB_OUTPUT"
