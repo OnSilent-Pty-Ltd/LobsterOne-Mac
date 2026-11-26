@@ -53,6 +53,20 @@ struct QuotaState: Equatable {
         return "\(usedTokens)"
     }
 
+    /// This state with Anthropic's real quota laid over it, when the app has it.
+    /// Without it the state stays the backend's estimate, shown with a ~.
+    func merging(anthropic anth: AnthropicQuotaState) -> QuotaState {
+        guard anth.source == .oauthAPI else { return self }
+        var merged = self
+        merged.percentUsed = anth.primaryPct
+        merged.isRealQuota = true
+        merged.anthropicState = anth
+        if let planLabel = anth.planLabel {
+            merged.planTier = planLabel
+        }
+        return merged
+    }
+
     var formattedPercent: String {
         let prefix = isRealQuota ? "" : "~"
         return "\(prefix)\(Int(percentUsed.rounded()))%"
