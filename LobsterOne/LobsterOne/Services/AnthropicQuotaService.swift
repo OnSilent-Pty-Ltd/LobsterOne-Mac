@@ -12,6 +12,16 @@ final class AnthropicQuotaService: ObservableObject {
     private let credentialService = ClaudeCredentialService()
     private let apiClient = AnthropicAPIClient()
 
+    /// Last source line logged, so the switch between real quota and the ~ estimate
+    /// shows once in the log, with its reason, instead of on every poll.
+    private var lastSourceNote: String?
+
+    private func noteSource(_ note: String) {
+        guard note != lastSourceNote else { return }
+        lastSourceNote = note
+        DebugLog.shared.log(note)
+    }
+
     /// Fetch real quota and optionally sync the snapshot to the Robocog backend.
     func fetch(syncTo lobsterClient: APIClient? = nil, apiKey: String? = nil) async {
         // Delegates a CLI-side token refresh when the stored token is expired
@@ -19,12 +29,14 @@ final class AnthropicQuotaService: ObservableObject {
         // instead of degrading to the ~P90 estimate.
         guard let creds = await credentialService.readCredentialsRefreshingIfNeeded() else {
             state.source = .robocogP90
+            noteSource("Quota source: estimate (~), no valid Claude token")
             return
         }
 
         do {
             let usage = try await apiClient.fetchUsage(accessToken: creds.accessToken)
             state = mapToState(usage, creds: creds)
+            noteSource("Quota source: real, from the Anthropic usage API")
             DebugLog.shared.log("Anthropic quota OK: 5h=\(state.fiveHourPct.map { "\(Int($0))%" } ?? "n/a"), 7d=\(state.sevenDayPct.map { "\(Int($0))%" } ?? "n/a")")
 
             // Sync to backend (fire-and-forget)
@@ -43,6 +55,7 @@ final class AnthropicQuotaService: ObservableObject {
             let msg = (error as? AnthropicAPIError)?.displayMessage ?? error.localizedDescription
             DebugLog.shared.log("Anthropic API failed: \(msg), falling back to P90")
             state.source = .robocogP90
+            noteSource("Quota source: estimate (~), Anthropic usage API failed: \(msg)")
         }
     }
 

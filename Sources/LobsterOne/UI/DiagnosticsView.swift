@@ -231,11 +231,20 @@ struct DebugLogView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Recent activity")
                         .font(BrandFonts.sans(17, weight: .semibold))
-                    Text("The last \(DebugLog.capacity) lines since launch. Errors show in red.")
+                    Text("The last \(DebugLog.capacity) lines. Errors show in red. Older lines are in the log file.")
                         .font(BrandFonts.sans(12.5))
                         .foregroundStyle(PopoverPalette.secondary)
                 }
                 Spacer(minLength: 8)
+                if let url = log.fileURL {
+                    PillButton {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Log file")
+                    }
+                }
                 PillButton(disabled: log.entries.isEmpty) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(log.formatted, forType: .string)
@@ -297,7 +306,7 @@ struct DebugLogView: View {
     /// Lines worth a second look: failures, errors and non-2xx HTTP statuses.
     static func isError(_ message: String) -> Bool {
         let lower = message.lowercased()
-        if ["fail", "error", "denied", "invalid", "unauthorized"].contains(where: lower.contains) { return true }
+        if ["fail", "error", "denied", "invalid", "unauthorized", "expired", "timed out"].contains(where: lower.contains) { return true }
         return lower.range(of: #"http [45]\d\d"#, options: .regularExpression) != nil
     }
 }

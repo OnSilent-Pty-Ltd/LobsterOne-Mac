@@ -46,7 +46,8 @@ final class AnthropicAPIClient {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             // Log response body for non-2xx to diagnose team/business account issues
             let body = String(data: data.prefix(300), encoding: .utf8) ?? "(empty)"
-            DebugLog.shared.log("Anthropic API HTTP \(statusCode) — body: \(body)")
+            let retryAfter = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After").map { ", retry-after=\($0)s" } ?? ""
+            DebugLog.shared.log("Anthropic API HTTP \(statusCode)\(retryAfter) — body: \(body)")
             throw AnthropicAPIError.httpError(statusCode: statusCode)
         }
 

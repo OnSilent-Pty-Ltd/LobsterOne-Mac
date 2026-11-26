@@ -53,7 +53,7 @@ Once an hour the app fetches `releases.lobsterone.ai/mac/appcast.xml` to look fo
 - **Dictation.** Audio and text are handled by Apple's on-device speech model. Nothing is recorded or sent.
 - **Keys and tokens.** Your LobsterOne API key, sign-in tokens and any pasted AWS keys are kept in your login Keychain under `com.lobsterone.mac`.
 - **AWS cost figures**, as above.
-- **The debug log** lives in memory only, holds the last 50 lines, and disappears when the app quits.
+- **The debug log** keeps its last 300 lines in memory for Settings → About → Diagnostics, and writes every line to `~/Library/Logs/LobsterOne/debug.log` (up to about 6 MB across three rotating files) so older problems can still be traced. It records what the app fetched and whether it worked, never whole tokens or keys: anything that looks like one is replaced with `[redacted]` before it is written. Nothing in it is sent anywhere unless you copy it out yourself.
 - **The scan cache** in `~/Library/Caches/LobsterOne/`. It records how far each session file has been read, so lines aren't sent twice.
 
 ## What the app changes on your Mac
