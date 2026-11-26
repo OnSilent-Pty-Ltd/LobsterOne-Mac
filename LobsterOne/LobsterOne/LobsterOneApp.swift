@@ -191,18 +191,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] state in
                 guard let self else { return }
-                var mergedState = state
-
                 // Merge Anthropic real quota data when available
                 let anthState = self.anthropicQuotaService.state
-                if anthState.source == .oauthAPI {
-                    mergedState.percentUsed = anthState.primaryPct
-                    mergedState.isRealQuota = true
-                    mergedState.anthropicState = anthState
-                    if let planLabel = anthState.planLabel {
-                        mergedState.planTier = planLabel
-                    }
-                }
+                let mergedState = state.merging(anthropic: anthState)
 
                 self.statusBar.quotaState = mergedState
                 self.statusBar.updateDisplay()
@@ -228,6 +219,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     self.statusBar.buildMenu()
                 }
+            }
+            .store(in: &cancellables)
+
+        // The Anthropic fetch runs alongside the backend poll and usually lands after it,
+        // so merge again when it arrives. Otherwise the bar keeps the ~ estimate until the
+        // next poll, up to 15 minutes away (always the case right after launch).
+        anthropicQuotaService.$state
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] anthState in
+                guard let self else { return }
+                let mergedState = self.pollingService.quotaState.merging(anthropic: anthState)
+                self.statusBar.quotaState = mergedState
+                self.statusBar.updateDisplay()
+                self.statusBar.buildMenu()
+                self.screensaverSnapshot.update(quota: mergedState, burn: self.statusBar.sevenDayBurn)
             }
             .store(in: &cancellables)
 

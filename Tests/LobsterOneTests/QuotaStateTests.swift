@@ -93,3 +93,28 @@ import Foundation
     )
     #expect(state.menuBarText == "7.600M")
 }
+
+@Test func mergingAnthropicQuotaDropsTheTilde() {
+    let estimate = QuotaState(
+        usedTokens: 61_000, usedRequests: 0, limitRequests: 0,
+        planTier: "", percentUsed: 0.4, lastUpdated: Date(),
+        isOffline: false, offlineReason: "", hasQuota: true
+    )
+    #expect(estimate.formattedPercent == "~0%")
+
+    var anth = AnthropicQuotaState()
+    anth.fiveHourPct = 12
+    anth.subscriptionType = "max"
+
+    // Not fetched yet, or fell back: the estimate stands.
+    anth.source = .robocogP90
+    #expect(estimate.merging(anthropic: anth).isRealQuota == false)
+    #expect(estimate.merging(anthropic: anth).formattedPercent == "~0%")
+
+    anth.source = .oauthAPI
+    let merged = estimate.merging(anthropic: anth)
+    #expect(merged.isRealQuota)
+    #expect(merged.formattedPercent == "12%")
+    #expect(merged.usedTokens == 61_000)
+    #expect(merged.anthropicState?.fiveHourPct == 12)
+}
