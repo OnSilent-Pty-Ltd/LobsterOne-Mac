@@ -122,6 +122,11 @@ struct SettingsView: View {
     @State private var addToolError: String?
     @State private var unconfiguredSources: [ConfigService.ConfiguredSource] = []
     @State private var screensaverInstalled = ScreensaverInstaller.isInstalled
+    /// Nil until Claude Code has been asked.
+    @State private var claudeCodeMod: ClaudeCodeMod.State?
+    @State private var claudeCodeBusy = false
+    @State private var claudeCodeError: String?
+    @State private var claudeCodeCopied = false
     @State private var screensaverError: String?
     @State private var screensaverStyle = ScreensaverInstaller.chosenStyle
     @State private var screensaverSystem = ScreensaverSystemState(choice: .unknown, idleSeconds: nil)
@@ -534,6 +539,12 @@ struct SettingsView: View {
                 }
             }
 
+            section("In Claude Code") { claudeCodeSteps }
+                .task { await refreshClaudeCodeMod() }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    Task { await refreshClaudeCodeMod() }
+                }
+
             if let error = addToolError {
                 Text(error)
                     .font(BrandFonts.sans(12.5))
@@ -569,6 +580,106 @@ struct SettingsView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
+        }
+    }
+
+    // MARK: Claude Code
+
+    /// Whether the band is added and on, as Claude Code reports it, with the one action that
+    /// moves it on. What Claude Code says is the truth here; the app keeps no record of its own.
+    @ViewBuilder
+    private var claudeCodeSteps: some View {
+        VStack(spacing: 0) {
+            switch claudeCodeMod {
+            case nil:
+                checklistStep(.neutral, title: "Asking Claude Code\u{2026}", detail: nil) {
+                    ProgressView().controlSize(.small)
+                }
+            case .claudeMissing:
+                checklistStep(.neutral, title: "Claude Code isn't on this Mac",
+                              detail: "The band lives inside Claude Code. Install it, and it can be added here.") { EmptyView() }
+            case .notBundled:
+                checklistStep(.neutral, title: "Not in this build",
+                              detail: "This build of LobsterOne doesn't include the band.") { EmptyView() }
+            case .notInstalled:
+                ClaudeCodeBandPreview(repo: "Robocog---Mac", status: "running git diff")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 4)
+                checklistStep(.todo(1), title: "Not added",
+                              detail: "A band above Claude Code's prompt: your project, a live trace, your crew at work.") {
+                    PillButton(title: claudeCodeBusy ? "Adding\u{2026}" : "Add to Claude Code", prominent: true) {
+                        runClaudeCode { try await $0.install() }
+                    }
+                    .disabled(claudeCodeBusy)
+                }
+                rowDivider
+                checklistStep(.todo(2), title: "On in Claude Code",
+                              detail: "New sessions show it; open ones after /reload-plugins.", dimmed: true) { EmptyView() }
+            case .installed(let version), .switchedOff(let version):
+                let shown = version.map { "Version \($0). " } ?? ""
+                checklistStep(.done, title: "Band added", detail: "\(shown)Updates with the app.") {
+                    DisconnectButton(title: "Remove") {
+                        runClaudeCode { try await $0.remove() }
+                    }
+                    .disabled(claudeCodeBusy)
+                    .accessibilityLabel("Remove the band from Claude Code")
+                }
+                rowDivider
+                if case .switchedOff = claudeCodeMod {
+                    checklistStep(.warning, title: "Switched off in Claude Code",
+                                  detail: "It was turned off from Claude Code's /plugin menu. LobsterOne leaves that choice alone unless you turn it back on here.") {
+                        PillButton(title: claudeCodeBusy ? "Turning on\u{2026}" : "Turn back on", prominent: true) {
+                            runClaudeCode { try await $0.turnOn() }
+                        }
+                        .disabled(claudeCodeBusy)
+                    }
+                } else {
+                    checklistStep(.done, title: "On in Claude Code",
+                                  detail: "New sessions show it. One that's already open shows it after /reload-plugins.") {
+                        PillButton(title: claudeCodeCopied ? "Copied" : "Copy command", prominent: false) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("/reload-plugins", forType: .string)
+                            claudeCodeCopied = true
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                claudeCodeCopied = false
+                            }
+                        }
+                    }
+                }
+            }
+            if let claudeCodeError {
+                rowDivider
+                Text(claudeCodeError)
+                    .font(BrandFonts.sans(12.5))
+                    .foregroundStyle(PopoverPalette.criticalText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func refreshClaudeCodeMod() async {
+        claudeCodeMod = await ClaudeCodeMod.live().state()
+    }
+
+    /// Runs one change through Claude Code, then shows what Claude Code says now.
+    private func runClaudeCode(_ change: @escaping (ClaudeCodeMod) async throws -> Void) {
+        guard !claudeCodeBusy else { return }
+        claudeCodeBusy = true
+        claudeCodeError = nil
+        Task {
+            do {
+                try await change(ClaudeCodeMod.live())
+            } catch {
+                claudeCodeError = error.localizedDescription
+                DebugLog.shared.log("Claude Code band: \(error.localizedDescription)")
+            }
+            await refreshClaudeCodeMod()
+            claudeCodeBusy = false
         }
     }
 
@@ -700,7 +811,7 @@ struct SettingsView: View {
     }
 
     private enum StepMark: Equatable {
-        case done, todo(Int), neutral
+        case done, todo(Int), neutral, warning
     }
 
     /// One line of the checklist: a tick, a step number or a quiet dot; what's true; and the
@@ -746,6 +857,10 @@ struct SettingsView: View {
             case .neutral:
                 Circle().strokeBorder(PopoverPalette.lineStrong, lineWidth: 1.5)
                 Circle().fill(PopoverPalette.tertiary).frame(width: 6, height: 6)
+            case .warning:
+                Circle().fill(PopoverPalette.warningBackground)
+                LineGlyph(data: HorizonGlyphs.warning, size: 13, lineWidth: 2.2)
+                    .foregroundStyle(PopoverPalette.warningText)
             }
         }
         .frame(width: 22, height: 22)

@@ -7,7 +7,7 @@ import Foundation
 @MainActor
 final class SetupGuide: ObservableObject {
     enum Step: Int, CaseIterable, Comparable {
-        case signIn, tools, sounds, dictation, alerts, screensaver, aws, done
+        case signIn, tools, claudeCode, sounds, dictation, alerts, screensaver, aws, done
 
         static func < (lhs: Step, rhs: Step) -> Bool { lhs.rawValue < rhs.rawValue }
 
@@ -20,6 +20,7 @@ final class SetupGuide: ObservableObject {
             switch self {
             case .signIn: "Account"
             case .tools: "Tools"
+            case .claudeCode: "In Claude Code"
             case .sounds: "Sounds"
             case .dictation: "Dictation"
             case .alerts: "Usage cap alerts"
@@ -100,6 +101,10 @@ final class SetupGuide: ObservableObject {
         /// Installs it and opens the picker in System Settings, as Settings' Install button does.
         var installScreensaver: () throws -> Void
         var awsConnected: () -> Bool
+        /// What Claude Code says about the LobsterOne mod, as Settings, Tools shows it.
+        var claudeCodeMod: () async -> ClaudeCodeMod.State = { .notBundled }
+        /// Settings' "Add to Claude Code": adds the mod, or turns it back on.
+        var addClaudeCodeMod: () async throws -> Void = {}
     }
 
     let env: Environment
@@ -134,6 +139,10 @@ final class SetupGuide: ObservableObject {
     @Published var screensaverStyle: ScreensaverStyle
     @Published private(set) var screensaverInstalled: Bool
     let screensaverAvailable: Bool
+
+    // Claude Code
+    /// Nil until the step has asked Claude Code.
+    @Published private(set) var claudeCodeMod: ClaudeCodeMod.State?
 
     // AWS
     @Published private(set) var wantsAWS = false
@@ -228,6 +237,7 @@ final class SetupGuide: ObservableObject {
         defer { isApplying = false }
         switch step {
         case .tools: await applyTools()
+        case .claudeCode: await applyClaudeCode()
         case .sounds: applySounds()
         case .dictation: applyDictation()
         case .alerts: await applyAlerts()
@@ -243,6 +253,9 @@ final class SetupGuide: ObservableObject {
         if let next = Step(rawValue: step.rawValue + 1) { step = next }
         if step == .alerts, notificationPermission == nil {
             Task { notificationPermission = await env.notificationPermission() }
+        }
+        if step == .claudeCode, claudeCodeMod == nil {
+            Task { await refreshClaudeCodeMod() }
         }
     }
 
@@ -379,6 +392,39 @@ final class SetupGuide: ObservableObject {
         }
         screensaverInstalled = env.screensaverInstalled()
         outcomes[.screensaver] = .on(screensaverStyle.title)
+    }
+
+    // MARK: Claude Code
+
+    func refreshClaudeCodeMod() async {
+        claudeCodeMod = await env.claudeCodeMod()
+    }
+
+    /// Adds the band, or turns it back on. Where Claude Code isn't here, or this build has no
+    /// band, there's nothing to add and the screen just moves on.
+    private func applyClaudeCode() async {
+        if claudeCodeMod == nil { await refreshClaudeCodeMod() }
+        switch claudeCodeMod {
+        case .claudeMissing:
+            outcomes[.claudeCode] = .off("Claude Code not found")
+        case .notBundled, nil:
+            outcomes[.claudeCode] = .skipped
+        case .installed:
+            outcomes[.claudeCode] = .on("Band added")
+        case .notInstalled, .switchedOff:
+            do {
+                try await env.addClaudeCodeMod()
+            } catch {
+                problem = error.localizedDescription
+                return
+            }
+            await refreshClaudeCodeMod()
+            if case .installed = claudeCodeMod {
+                outcomes[.claudeCode] = .on("Band added")
+            } else {
+                problem = "Claude Code didn't confirm the band was added. Try again, or skip and add it in Settings, Tools."
+            }
+        }
     }
 
     // MARK: AWS

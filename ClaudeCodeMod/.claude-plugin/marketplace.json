@@ -1,0 +1,6 @@
+{
+  "name": "lobsterone",
+  "description": "The LobsterOne mod for Claude Code, installed by the LobsterOne app.",
+  "owner": { "name": "LobsterOne" },
+  "plugins": [{ "name": "lobsterone", "source": "./" }]
+}

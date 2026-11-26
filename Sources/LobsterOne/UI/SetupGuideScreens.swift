@@ -12,6 +12,7 @@ struct SetupGuideScreen: View {
         switch guide.step {
         case .signIn: EmptyView()
         case .tools: ToolsScreen(guide: guide)
+        case .claudeCode: ClaudeCodeScreen(guide: guide)
         case .sounds: SoundsScreen(guide: guide)
         case .dictation:
             if let dictation {
@@ -262,6 +263,130 @@ private struct ToolsScreen: View {
         .opacity(presence.available ? 1 : 0.55)
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+    }
+}
+
+// MARK: - Claude Code
+
+private struct ClaudeCodeScreen: View {
+    @ObservedObject var guide: SetupGuide
+
+    var body: some View {
+        GuidePage(title: "LobsterOne in Claude Code",
+                  detail: "A band above Claude Code's prompt: your project, a live trace of the work, and your crew while they're at it.",
+                  prop: .symbol("rectangle.bottomhalf.inset.filled"),
+                  walking: guide.claudeCodeMod == .notInstalled || guide.isApplying) {
+            switch guide.claudeCodeMod {
+            case .claudeMissing:
+                ClaudeCodeBandPreview().opacity(0.45)
+                GuideCard {
+                    GuideRow(title: "Claude Code isn't on this Mac",
+                             detail: "The band lives inside Claude Code, so there's nothing to add yet.") { EmptyView() }
+                }
+                GuideNote("Once Claude Code is installed, LobsterOne offers the band in Settings, Tools.")
+            case .notBundled:
+                GuideCard {
+                    GuideRow(title: "Not in this build",
+                             detail: "This build of LobsterOne doesn't include the band, so there's nothing to add.") { EmptyView() }
+                }
+            case .installed:
+                ClaudeCodeBandPreview()
+                GuideCard {
+                    GuideRow(title: "Already added", detail: "Manage it in Settings, Tools.", dot: PopoverPalette.dotActive) { EmptyView() }
+                }
+            case .switchedOff:
+                ClaudeCodeBandPreview()
+                GuideCard {
+                    GuideRow(title: "Switched off in Claude Code",
+                             detail: "It was turned off from Claude Code's /plugin menu. Turn back on, or leave it off.",
+                             dot: PopoverPalette.dotWaiting) { EmptyView() }
+                }
+            case .notInstalled, nil:
+                ClaudeCodeBandPreview()
+                GuideNote("Adds a plugin to Claude Code from LobsterOne's folder. New sessions show it; a session that's already open shows it after /reload-plugins.")
+            }
+            if let problem = guide.problem {
+                ClaudeCodeProblem(text: problem)
+            }
+        }
+        .task { if guide.claudeCodeMod == nil { await guide.refreshClaudeCodeMod() } }
+    }
+}
+
+/// Claude Code's refusal, boxed so it reads as the reason the screen didn't move on.
+struct ClaudeCodeProblem: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            LineGlyph(data: HorizonGlyphs.warning, size: 14, lineWidth: 2)
+                .foregroundStyle(PopoverPalette.criticalText)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Claude Code didn't take the band")
+                    .font(BrandFonts.sans(13, weight: .semibold))
+                Text(text)
+                    .font(BrandFonts.sans(12.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(PopoverPalette.criticalText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(PopoverPalette.criticalBackground, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The band as it sits above Claude Code's prompt, drawn from the app's own pieces with made-up
+/// content: a picture of it, not the mod. Static.
+struct ClaudeCodeBandPreview: View {
+    var repo = "my-app"
+    var status = "reading auth.ts"
+
+    private static let ground = Color(red: 0x1B / 255, green: 0x19 / 255, blue: 0x16 / 255)
+    private static let ink = Color(red: 0xF5 / 255, green: 0xF0 / 255, blue: 0xEA / 255)
+    private static let muted = Color(red: 0xA8 / 255, green: 0xA0 / 255, blue: 0x97 / 255)
+    private static let bubble = Color(red: 0x2C / 255, green: 0x28 / 255, blue: 0x23 / 255)
+    private static let bubbleLine = Color(red: 0x4A / 255, green: 0x44 / 255, blue: 0x3D / 255)
+    private static let working = Color(red: 0x2F / 255, green: 0xA3 / 255, blue: 0x6B / 255)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    ClawMark(size: 15, color: .white)
+                    Text("LobsterOne").font(BrandFonts.sans(14, weight: .semibold)).tracking(-0.14)
+                }
+                Text(repo).font(BrandFonts.sans(12)).foregroundStyle(Self.muted)
+                HStack(spacing: 5) {
+                    CrewFace(face: "wren", name: "Wren", size: 20)
+                        .overlay(Circle().strokeBorder(Self.working, lineWidth: 1.5))
+                    HStack(spacing: 6) {
+                        Text("Wren").font(BrandFonts.sans(11.5, weight: .semibold))
+                        Text(status).font(BrandFonts.sans(11.5)).foregroundStyle(Self.ink.opacity(0.8))
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 20)
+                    .background(Self.bubble, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Self.bubbleLine, lineWidth: 1))
+                }
+                Spacer(minLength: 8)
+                Circle().fill(Self.working).frame(width: 8, height: 8)
+                Text("working").font(BrandFonts.sans(12)).foregroundStyle(Self.muted)
+            }
+            .foregroundStyle(Self.ink)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(Self.ground, in: RoundedRectangle(cornerRadius: 12))
+            Text("How it looks above the prompt, in the Claude Code app and the terminal.")
+                .font(BrandFonts.sans(11.5))
+                .foregroundStyle(PopoverPalette.secondary)
+                .padding(.leading, 2)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("A preview of the band: LobsterOne, the repo, Wren reading a file, and a working dot.")
     }
 }
 
@@ -756,7 +881,7 @@ private struct AWSExample: View {
 private struct DoneScreen: View {
     @ObservedObject var guide: SetupGuide
 
-    private let steps: [SetupGuide.Step] = [.tools, .sounds, .dictation, .alerts, .screensaver, .aws]
+    private let steps: [SetupGuide.Step] = [.tools, .claudeCode, .sounds, .dictation, .alerts, .screensaver, .aws]
 
     var body: some View {
         GuidePage(title: "All set",

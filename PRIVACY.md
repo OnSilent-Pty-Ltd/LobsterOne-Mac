@@ -67,6 +67,7 @@ Each file it edits gets a `.lobsterone-backup` copy first, where noted.
 | `~/.codex/hooks.json` (backup), `~/.vibe/hooks.toml` (backup) | Sound-cue hooks that run `afplay` | When you turn on sounds |
 | `~/.lobsterone/config.json` | A copy of the telemetry settings, used to repair them | Setup |
 | `~/.claude/agents/` and `~/.claude/agent-memory/` | Agent files for crew you hire. Only files the app wrote are ever changed or removed | When you hire or let go of crew |
+| `~/Library/Application Support/LobsterOne/ClaudeCode/` | The LobsterOne mod for Claude Code (the band above the prompt), installed into Claude Code at user scope with its own `claude plugin` commands. It reads your project's name, logo and colours on your Mac to draw the band and sends nothing. Removing it uninstalls the plugin and deletes the folder | When you add the mod (Settings → Tools, or the setup guide) |
 | `~/.zshrc`, `~/.bashrc`, `~/.zprofile`, `~/.bash_profile` | Comments out old telemetry lines | Only when you choose that fix in Diagnostics |
 
 ## Stopping it

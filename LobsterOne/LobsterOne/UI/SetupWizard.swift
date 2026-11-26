@@ -170,6 +170,19 @@ struct SetupWizard: View {
         case .tools:
             return (Action(title: guide.isApplying ? "Connecting\u{2026}" : "Continue",
                            enabled: guide.tools != nil && !guide.isApplying, run: confirm), notNow)
+        case .claudeCode:
+            switch guide.claudeCodeMod {
+            case nil:
+                return (Action(title: "Asking Claude Code\u{2026}", enabled: false) {}, notNow)
+            case .claudeMissing, .notBundled, .installed:
+                return (Action(title: "Continue", run: confirm), nil)
+            case .switchedOff:
+                return (Action(title: guide.isApplying ? "Turning on\u{2026}" : "Turn back on",
+                               enabled: !guide.isApplying, run: confirm), notNow)
+            case .notInstalled:
+                let title = guide.isApplying ? "Adding\u{2026}" : guide.problem == nil ? "Add to Claude Code" : "Try again"
+                return (Action(title: title, enabled: !guide.isApplying, run: confirm), notNow)
+            }
         case .sounds:
             return (Action(title: guide.chosenPack == nil ? "Continue" : "Use these sounds", run: confirm), notNow)
         case .dictation:
