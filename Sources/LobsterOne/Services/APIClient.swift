@@ -32,7 +32,6 @@ final class APIClient {
 
     func fetchQuota() async throws -> QuotaResponse {
         let path = "/v1/usage/quota"
-        DebugLog.shared.log("Fetching \(path)")
         let request = buildRequest(path: path, method: "GET")
         let (data, response) = try await session.data(for: request)
 
@@ -50,7 +49,6 @@ final class APIClient {
 
     func fetchRealtime() async throws -> RealtimeResponse {
         let path = "/v1/usage/realtime"
-        DebugLog.shared.log("Fetching \(path)")
         let request = buildRequest(path: path, method: "GET")
         let (data, response) = try await session.data(for: request)
 
@@ -68,7 +66,6 @@ final class APIClient {
 
     func fetchStatus() async throws -> StatusResponse {
         let path = "/v1/usage/status"
-        DebugLog.shared.log("Fetching \(path)")
         var request = buildRequest(path: path, method: "GET")
         if let screensaver = ScreensaverReport.headerValue() {
             request.setValue(screensaver, forHTTPHeaderField: ScreensaverReport.headerName)
@@ -161,7 +158,6 @@ final class APIClient {
 
     func fetchQuotaForInstance(apiKey: String, instanceId: String) async throws -> QuotaResponse {
         let path = "/v1/usage/quota?instance_id=\(instanceId)"
-        DebugLog.shared.log("Fetching \(path)")
         var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -219,7 +215,6 @@ final class APIClient {
 
     func fetchNotificationCount() async throws -> NotificationCountResponse {
         let path = "/v1/notifications/count"
-        DebugLog.shared.log("Fetching \(path)")
         let request = buildRequest(path: path, method: "GET")
         let (data, response) = try await session.data(for: request)
 

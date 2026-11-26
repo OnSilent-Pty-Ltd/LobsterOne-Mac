@@ -64,6 +64,22 @@ struct ClaudeOAuthCredentials: Decodable {
         let expiryDate = Date(timeIntervalSince1970: Double(expiresAt) / 1000.0)
         return Date().addingTimeInterval(5 * 60) >= expiryDate
     }
+
+    /// "valid for 7h 12m" or "expired 1d 9h ago", for the debug log.
+    func expiryDescription(now: Date = Date()) -> String {
+        let expiry = Date(timeIntervalSince1970: Double(expiresAt) / 1000.0)
+        let gap = expiry.timeIntervalSince(now)
+        let span = Self.span(abs(gap))
+        return gap > 0 ? "valid for \(span)" : "expired \(span) ago"
+    }
+
+    static func span(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60)
+        let days = minutes / 1440, hours = (minutes % 1440) / 60, mins = minutes % 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(mins)m" }
+        return "\(mins)m"
+    }
 }
 
 // MARK: - Published State for UI
